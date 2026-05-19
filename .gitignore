@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+.venv/
+*.pyc
+*.pyo
+.python-version
+outputs/
+analytical_modeling/scale-sim-v2/scalesim_outputs/
+
+# Optional: ignore the SCALE-Sim clone itself (see note below)
+# analytical_modeling/scale-sim-v2/
+# Virtual environments
+.venv
