@@ -3,7 +3,7 @@ import os
 from math import ceil
 import pandas as pd
 
-import analytical_modeling.energy as energy
+import energy as energy
 from uSystolic_AM import uSystolic_Arch
 from uGEMM_AM     import uGEMM_Arch
 from CambriconU_AM import CambriconU_Arch
