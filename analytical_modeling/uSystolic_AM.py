@@ -1,4 +1,4 @@
-import analytical_modeling.power as power
+import energy as energy
 
 class uSystolic_Arch:
     def __init__(self, m: int, n: int, k: int, clock: float, precision: int):
@@ -12,30 +12,30 @@ class uSystolic_Arch:
         self.a = precision # SET LATER BASED ON EARLY TERMINATION REQS
     
     def weight_power(self):
-        cmp = self.m * self.n * self.k * self.l * self.b * power.__CMP
-        wt_reg = self.m * self.n * (self.b) * power.__REG
-        rng = self.m * self.k * self.b * power.__RNG
-        rng_reg = self.m * (self.n - 1) * self.k * self.b * power.__REG
+        cmp = self.m * self.n * self.k * self.l * self.b * energy.__CMP
+        wt_reg = self.m * self.n * (self.b) * energy.__REG
+        rng = self.m * self.k * self.b * energy.__RNG
+        rng_reg = self.m * (self.n - 1) * self.k * self.b * energy.__REG
         
         return cmp + wt_reg + rng + rng_reg
     
     def input_power(self):
-        cmp = self.n * self.k * self.l * self.b * power.__CMP
-        inp_reg = self.n * self.k * (self.b) * power.__REG
-        pe_reg = self.m * (self.n - 1) * self.k * self.l * power.__REG
+        cmp = self.n * self.k * self.l * self.b * energy.__CMP
+        inp_reg = self.n * self.k * (self.b) * energy.__REG
+        pe_reg = self.m * (self.n - 1) * self.k * self.l * energy.__REG
         
         return cmp + inp_reg + pe_reg
     
     def output_power(self):
-        acc = self.m * self.n * self.k * self.l * self.a * power.__INC
-        add = self.m * self.n * self.k * self.a * power.__ADD
-        reg = self.m * self.n * self.k * (self.l + 1) * self.a * power.__REG
+        acc = self.m * self.n * self.k * self.l * self.a * energy.__INC
+        add = self.m * self.n * self.k * self.a * energy.__ADD
+        reg = self.m * self.n * self.k * (self.l + 1) * self.a * energy.__REG
         
         return acc + add + reg
     
     def pe_misc_power(self):
-        prod = self.m * self.n * self.k * self.l * (power.__AND + power.__MUX + power.__SEL)
-        sign = self.m * self.n * self.k * power.__XOR
+        prod = self.m * self.n * self.k * self.l * (energy.__AND + energy.__MUX + energy.__SEL)
+        sign = self.m * self.n * self.k * energy.__XOR
         
         return prod + sign
     """
