@@ -42,6 +42,14 @@ _SKEW_PC_DYN = 1
 # Binary specific
 _MAC_BINARY_INT8_DYN = 1 
 
+# Memory
+_SRAM_READ_DYN = 1
+_SRAM_WRITE_DYN = 1
+
+
+
+
+
 
 #LEAKAGE POWER
 # general 
@@ -86,3 +94,6 @@ _SKEW_PC_LEAK = 1
 
 # Binary specific
 _MAC_BINARY_INT8_LEAK = 1 
+
+# Memory
+_SRAM_LEAK = 1  # per KB

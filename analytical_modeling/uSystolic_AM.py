@@ -1,7 +1,7 @@
 import energy as energy
 
 class uSystolic_Arch:
-    def __init__(self, m: int, n: int, k: int, clock: float, precision: int):
+    def _init_(self, m: int, n: int, k: int, clock: float, precision: int):
         self.m = m
         self.n = n
         self.k = k
@@ -12,36 +12,36 @@ class uSystolic_Arch:
         self.a = precision # SET LATER BASED ON EARLY TERMINATION REQS
     
     def weight_power(self):
-        cmp = self.m * self.n * self.k * self.l * self.b * energy.__CMP
-        wt_reg = self.m * self.n * (self.b) * energy.__REG
-        rng = self.m * self.k * self.b * energy.__RNG
-        rng_reg = self.m * (self.n - 1) * self.k * self.b * energy.__REG
+        cmp = self.m * self.n * self.k * self.l * self.b * energy._CMP_DYN
+        wt_reg = self.m * self.n * (self.b) * energy._REG_DYN
+        rng = self.m * self.k * self.b * energy._RNG_DYN
+        rng_reg = self.m * (self.n - 1) * self.k * self.b * energy._REG
         
         return cmp + wt_reg + rng + rng_reg
     
     def input_power(self):
-        cmp = self.n * self.k * self.l * self.b * energy.__CMP
-        inp_reg = self.n * self.k * (self.b) * energy.__REG
-        pe_reg = self.m * (self.n - 1) * self.k * self.l * energy.__REG
+        cmp = self.n * self.k * self.l * self.b * energy._CMP
+        inp_reg = self.n * self.k * (self.b) * energy._REG
+        pe_reg = self.m * (self.n - 1) * self.k * self.l * energy._REG
         
         return cmp + inp_reg + pe_reg
     
     def output_power(self):
-        acc = self.m * self.n * self.k * self.l * self.a * energy.__INC
-        add = self.m * self.n * self.k * self.a * energy.__ADD
-        reg = self.m * self.n * self.k * (self.l + 1) * self.a * energy.__REG
+        acc = self.m * self.n * self.k * self.l * self.a * energy._INC
+        add = self.m * self.n * self.k * self.a * energy._ADD
+        reg = self.m * self.n * self.k * (self.l + 1) * self.a * energy._REG
         
         return acc + add + reg
     
     def pe_misc_power(self):
-        prod = self.m * self.n * self.k * self.l * (energy.__AND + energy.__MUX + energy.__SEL)
-        sign = self.m * self.n * self.k * energy.__XOR
+        prod = self.m * self.n * self.k * self.l * (energy._AND + energy._MUX + energy._SEL)
+        sign = self.m * self.n * self.k * energy._XOR
         
         return prod + sign
     """
     def peripheral_power(self):
-        fifo = 2 * self.n * self.b * power.__FIFO + self.m * self.b * power.__FIFO
-        shift = self.n * self.b * power.__SHIFT
+        fifo = 2 * self.n * self.b * power._FIFO + self.m * self.b * power._FIFO
+        shift = self.n * self.b * power._SHIFT
         
         return fifo + shift
     """

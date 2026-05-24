@@ -1,7 +1,7 @@
 # validate_binary_model.py
 import pandas as pd
-from compare import binary_via_scalesim
-from binary_AM import BinaryUSystolic_Arch
+from run_scalesim import binary_via_scalesim
+from binary_AM import BinarySystolic_Arch
 # reuse your existing SCALE-Sim runner from compare_energy.py
 
 ARRAY_H, ARRAY_W = 64, 64
@@ -16,7 +16,7 @@ def validate():
     rows = []
     for (name, M, N, K), (_, crow), (_, arow) in zip(
             WORKLOADS, compute.iterrows(), access.iterrows()):
-        model = BinaryUSystolic_Arch(M, N, K, ARRAY_H, ARRAY_W)
+        model = BinarySystolic_Arch(M, N, K, ARRAY_H, ARRAY_W)
         m = model.summary()
 
         # SCALE-Sim SRAM reads (verify column names against your CSV header)

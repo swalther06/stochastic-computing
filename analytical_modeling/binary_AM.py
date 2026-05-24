@@ -1,15 +1,17 @@
 # binary_usystolic_AM.py
 from math import ceil
+import energy
 
-class BinaryUSystolic_Arch:
+class BinarySystolic_Arch:
     """Analytical model of a bit-parallel weight-stationary systolic array.
     This is uSystolic's binary baseline: same dataflow, 1 cycle per MAC."""
 
-    def __init__(self, M, N, K, array_h, array_w, precision=8,
+    def __init__(self, M, N, K, array_h, array_w, precision=8, clock=1e-9,
                  ifmap_sram_kB=1024, filter_sram_kB=1024, ofmap_sram_kB=1024):
         self.M, self.N, self.K = M, N, K
         self.H, self.W = array_h, array_w
         self.bytes_per_elem = precision / 8.0
+        self.clock = clock
         self.ifmap_sram   = ifmap_sram_kB  * 1024
         self.filter_sram  = filter_sram_kB * 1024
         self.ofmap_sram   = ofmap_sram_kB  * 1024
@@ -66,3 +68,27 @@ class BinaryUSystolic_Arch:
             'dram_ifmap_reads':  self.dram_ifmap_reads(),
             'dram_ofmap_writes': self.dram_ofmap_writes(),
         }
+    
+    def get_PE_dyn_energy(self):
+        macs = self.M * self.N * self.K
+        return macs * energy._MAC_BINARY_INT8_DYN
+    
+    def get_PE_leak_energy(self):
+        execution_time = self.get_cycles() * self.clock
+        num_pes = self.H * self.W          # whatever you named the array dims
+        return num_pes * execution_time * energy._MAC_BINARY_INT8_LEAK
+    
+    def get_mem_dyn_energy(self):
+        filter_rd = self.filter_sram_reads() * energy._SRAM_READ_DYN
+        ifmap_rd = self.ifmap_sram_reads() * energy._SRAM_READ_DYN
+        ofmap_wr = self.ofmap_sram_writes() * energy._SRAM_WRITE_DYN
+        return filter_rd + ifmap_rd + ofmap_wr
+    
+    def get_mem_leak_energy(self):
+        execution_time = self.get_cycles() * self.clock
+        total_sram_kb = (self.filter_sram + self.ifmap_sram + self.ofmap_sram) / 1024
+        return total_sram_kb * energy._SRAM_LEAK * execution_time
+    
+    def get_energy(self):
+        return self.get_PE_dyn_energy() + self.get_PE_leak_energy() + self.get_mem_dyn_energy() + self.get_mem_leak_energy()
+
