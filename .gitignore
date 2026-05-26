@@ -17,3 +17,13 @@ analytical_modeling/scale-sim-v2/scalesim_outputs/
 # analytical_modeling/scale-sim-v2/
 # Virtual environments
 .venv
+
+# Synthesis generated outputs
+synthesis/output/
+synthesis/reports/
+synthesis/WORK/
+synthesis/*.log
+synthesis/*.svf
+synthesis/*.mr
+synthesis/*.pvl
+synthesis/*.syn
