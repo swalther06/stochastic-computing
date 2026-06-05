@@ -22,8 +22,13 @@ analytical_modeling/scale-sim-v2/scalesim_outputs/
 synthesis/output/
 synthesis/reports/
 synthesis/WORK/
+synthesis/mr/
+synthesis/pvl/
+synthesis/syn/
+synthesis/cksum_dir/
 synthesis/*.log
 synthesis/*.svf
 synthesis/*.mr
 synthesis/*.pvl
 synthesis/*.syn
+synthesis/*.cksum

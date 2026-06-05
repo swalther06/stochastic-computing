@@ -22,6 +22,9 @@ SYN_DIR     := synthesis
 export RTL_DIR     := verilog
 export OUTPUT_DIR  := output
 export REPORTS_DIR := reports
+PVL_DIR    := pvl
+SYN_SUBDIR := syn
+MR_DIR     := mr
 
 # --- Synthesis knobs (override on the command line) --------------------------
 #   make and_module LIB=/path/to/stdcell.db AREA_EFFORT=high POWER_EFFORT=high
@@ -44,7 +47,10 @@ AM_DIR := analytical_modeling
 # uv run prefix — ensures the project venv is used
 PY := uv run python
 
-.PHONY: help sync compare validate clean
+CACTI_DIR := analytical_modeling/cacti7
+CACTI_BIN := $(CACTI_DIR)/cacti
+
+.PHONY: help sync compare validate clean clean-cache distclean cacti
 
 # ===== Help ===================================================================
 help:
@@ -70,23 +76,32 @@ help:
 	@echo "      --array-h <int>       PE array height  (default: 64)"
 	@echo "      --array-w <int>       PE array width   (default: 64)"
 	@echo "      --precision <int>     Bit precision    (default: 8)"
-	@echo "      --clock <float>       Clock period (s) (default: 1e-9)"
-	@echo "      --synthesize          Run DC synthesis to populate energy values"
+	@echo "      --frequency <float>   Clock frequency in Hz (default: 1e9 = 1 GHz)"
+	@echo "      --synthesize          Run DC synthesis to populate compute-component energies"
+	@echo "      --cacti               Run CACTI to populate SRAM read/write/leakage energies"
+	@echo ""
+	@echo "CACTI (SRAM energy):"
+	@echo "  make cacti      Init submodule and build CACTI 7 ($(CACTI_DIR))"
 	@echo ""
 	@echo "General:"
-	@echo "  make clean      Remove all generated outputs (synthesis + modeling)"
-	@echo "  make help       Show this message"
+	@echo "  make clean        Remove all generated outputs (synthesis + modeling)"
+	@echo "  make clean-cache  Remove synthesis/energy_cache.json"
+	@echo "  make distclean    clean + clean-cache"
+	@echo "  make help         Show this message"
 
 # ===== Synthesis ==============================================================
 # `make <module>` synthesizes synthesis/verilog/<module>.v.
 # DC runs from inside SYN_DIR so its WORK/, command.log, etc. stay contained.
 # Explicit targets above (sync/compare/validate/clean/help) override this rule.
 %: $(SYN_DIR)/$(RTL_DIR)/%.sv $(SYN_DIR)/$(SYNTH_TCL)
-	@mkdir -p $(SYN_DIR)/$(OUTPUT_DIR)
+	@mkdir -p $(SYN_DIR)/$(OUTPUT_DIR) $(SYN_DIR)/$(PVL_DIR) $(SYN_DIR)/$(SYN_SUBDIR) $(SYN_DIR)/$(MR_DIR)
 	@echo ">> Synthesizing module '$*' from $<"
 	@echo ">>   LIB=$(LIB)  AREA_EFFORT=$(AREA_EFFORT)  POWER_EFFORT=$(POWER_EFFORT)  MAP_EFFORT=$(MAP_EFFORT)"
 	@cd $(SYN_DIR) && TOP=$* $(DC) -f $(SYNTH_TCL) -x "set TOP $*" \
 		| tee $(OUTPUT_DIR)/$*.log; exit $${PIPESTATUS[0]}
+	@find $(SYN_DIR) -maxdepth 1 -name "*-verilog.pvl" -exec mv {} $(SYN_DIR)/$(PVL_DIR)/ \;
+	@find $(SYN_DIR) -maxdepth 1 -name "*-verilog.syn"  -exec mv {} $(SYN_DIR)/$(SYN_SUBDIR)/ \;
+	@find $(SYN_DIR) -maxdepth 1 -name "*.mr"            -exec mv {} $(SYN_DIR)/$(MR_DIR)/ \;
 	@echo ">> Done. See $(SYN_DIR)/$(OUTPUT_DIR)/"
 
 # ===== Analytical modeling ====================================================
@@ -104,13 +119,25 @@ compare:
 validate:
 	cd $(AM_DIR) && $(PY) validate.py
 
+# ===== CACTI ==================================================================
+# Initializes the cacti7 submodule and builds it.
+cacti: $(CACTI_BIN)
+
+$(CACTI_BIN):
+	@echo ">> Initializing CACTI 7 submodule..."
+	git submodule update --init $(CACTI_DIR)
+	@echo ">> Building CACTI..."
+	$(MAKE) -C $(CACTI_DIR)
+	@echo ">> CACTI binary ready: $(CACTI_BIN)"
+
 # ===== Clean (both pipelines) =================================================
 clean:
 	@# --- synthesis artifacts ---
 	rm -rf $(SYN_DIR)/$(OUTPUT_DIR) \
 		$(SYN_DIR)/$(REPORTS_DIR) \
+		$(SYN_DIR)/$(PVL_DIR) $(SYN_DIR)/$(SYN_SUBDIR) $(SYN_DIR)/$(MR_DIR) \
 		$(SYN_DIR)/command.log $(SYN_DIR)/default.svf \
-		$(SYN_DIR)/*.syn $(SYN_DIR)/*.mr $(SYN_DIR)/*.pvl $(SYN_DIR)/WORK
+		$(SYN_DIR)/WORK
 	@# --- analytical modeling artifacts ---
 	rm -rf $(AM_DIR)/outputs
 	rm -rf $(AM_DIR)/configs/binary_64x64.cfg
@@ -118,3 +145,9 @@ clean:
 	rm -rf $(AM_DIR)/layouts/stub_layout.csv
 	find $(AM_DIR) -name "__pycache__" -type d -exec rm -rf {} +
 	@echo ">> Cleaned generated files."
+
+clean-cache:
+	rm -f $(SYN_DIR)/energy_cache.json
+	@echo ">> Removed energy cache."
+
+distclean: clean clean-cache

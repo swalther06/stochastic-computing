@@ -1,4 +1,5 @@
 // MAC: multiply-accumulate for binary INT8 neural network inference
+/*
 module mac_binary_int8 (
     input                    clk, rst,
     input  signed [7:0]      a, b,
@@ -9,3 +10,4 @@ module mac_binary_int8 (
         else     acc <= acc + (a * b);
     end
 endmodule
+*/

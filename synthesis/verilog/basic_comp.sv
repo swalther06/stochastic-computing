@@ -1,8 +1,8 @@
-module mux(input sel, a, b, output y);
-    assign y = sel ? b : a;
+module mux #(parameter W = 4) (input sel, input [W-1:0] a, input [W-1:0] b, output reg [W-1:0] y);
+    always_comb y = sel ? b : a;
 endmodule
 
-module dff(input clk, rst, d, output reg q);
+module dff #(parameter W = 4) (input clk, rst, input [W-1:0] d, output reg [W-1:0] q);
     always_ff @(posedge clk) begin
         if (rst) q <= 0;
         else     q <= d;
@@ -19,23 +19,32 @@ module ctr #(parameter W = 4) (
     end
 endmodule
 
+/*
 module fa(input a, b, cin, output sum, cout);
     assign sum  = a ^ b ^ cin;
     assign cout = (a & b) | (cin & (a ^ b));
 endmodule
+*/
 
-module sub(input a, b, bin, output diff, bout);
-    assign diff = a ^ b ^ bin;
-    assign bout = (~a & b) | (bin & ~(a ^ b));
+module add #(parameter W = 4) (
+    input [W-1:0] a, b,
+    output reg [W-1:0] sum
+);
+    always_comb sum = a + b;
 endmodule
 
-module inc(input a, cin, output sum, cout);
-    assign sum  = a ^ cin;
-    assign cout = a & cin;
+module inc #(parameter W = 4) (
+    input [W-1:0] a,
+    output reg [W-1:0] b
+);
+    always_comb b = a + 1;
 endmodule
 
-module cmp(input a, b, output lt);
-    assign lt = (a < b);
+module cmp #(parameter W = 4) (
+    input [W-1:0] a, b,
+    output reg lt
+);
+    always_comb lt = (a < b);
 endmodule
 
 module bshift #(parameter WIDTH = 4) (

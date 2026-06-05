@@ -25,6 +25,10 @@ WORKLOADS = [
     ('512x512x512', 512,  512,  512),
 ]
 
+IFMAP_SRAM_KB = 64
+FILTER_SRAM_KB = 64
+OFMAP_SRAM_KB = 64
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -34,9 +38,12 @@ def parse_args():
     p.add_argument('--array-h',  type=int,   default=64,   dest='array_h')
     p.add_argument('--array-w',  type=int,   default=64,   dest='array_w')
     p.add_argument('--precision', type=int,  default=8)
-    p.add_argument('--clock',     type=float, default=1e-9)
+    p.add_argument('--frequency', type=float, default=1e9,
+                   help='Clock frequency in Hz (default: 1e9 = 1 GHz)')
     p.add_argument('--synthesize', action='store_true',
-                   help='Run DC synthesis to populate energy values before modeling')
+                   help='Run DC synthesis to populate compute-component energy values')
+    p.add_argument('--cacti', action='store_true',
+                   help='Run CACTI to populate SRAM read/write/leakage energy values')
     return p.parse_args()
 
 
@@ -52,13 +59,24 @@ def main():
 
     rows = []
     for name, M, N, K in workloads:
-        e = Energy(M, N, K, precision=args.precision, clock=args.clock)
+        e = Energy(M, N, K,
+                   array_h=args.array_h, array_w=args.array_w,
+                   precision=args.precision, freq=args.frequency,
+                   ifmap_sram_kB=IFMAP_SRAM_KB,
+                   filter_sram_kB=FILTER_SRAM_KB,
+                   ofmap_sram_kB=OFMAP_SRAM_KB)
         if args.synthesize:
             e.synthesize()
+        if args.cacti:
+            e.run_cacti()
+        if not args.synthesize and not args.cacti:
+            print(f'[{name}] Using cached energy values (pass --synthesize and/or --cacti to refresh)')
 
         ugemm = uGEMM_Arch(M, N, K, args.array_h, args.array_w,
                            acc_type="uNSADD", mul_type="uMUL-IS-unipolar",
-                           clock=args.clock, precision=args.precision, energy=e)
+                           freq=args.frequency, precision=args.precision, energy=e,
+                           include_memory=False, ifmap_sram_kB=IFMAP_SRAM_KB, 
+                           filter_sram_kB=FILTER_SRAM_KB, ofmap_sram_kB=OFMAP_SRAM_KB)
         rows.append({
             'workload': name, 'arch': 'uGEMM',
             'cycles':   ugemm.get_cycles(),
@@ -66,29 +84,37 @@ def main():
         })
 
         binmodel = BinarySystolic_Arch(M, N, K, args.array_h, args.array_w,
-                                       precision=args.precision, clock=args.clock, energy=e)
+                                       precision=args.precision, freq=args.frequency, energy=e,
+                                       include_memory=False, ifmap_sram_kB=IFMAP_SRAM_KB, 
+                                       filter_sram_kB=FILTER_SRAM_KB, ofmap_sram_kB=OFMAP_SRAM_KB)
         rows.append({
             'workload': name, 'arch': 'Binary',
             'cycles':   binmodel.get_cycles(),
             'energy_pJ': binmodel.get_energy() * 1e12,
         })
 
-        # usys = uSystolic_Arch(M, N, K, clock=args.clock, precision=args.precision, energy=e)
-        # rows.append({'workload': name, 'arch': 'uSystolic',
-        #              'cycles': usys.get_cycles(),
-        #              'energy_pJ': usys.get_energy() * 1e12})
+        usys = uSystolic_Arch(M, N, K, args.array_h, args.array_w,
+                              freq=args.frequency, precision=args.precision,
+                              energy=e, include_memory=False, ifmap_sram_kB=IFMAP_SRAM_KB, 
+                              filter_sram_kB=FILTER_SRAM_KB, ofmap_sram_kB=OFMAP_SRAM_KB)
+        rows.append({
+            'workload': name, 'arch': 'uSystolic',
+            'cycles':   usys.get_cycles(),
+            'energy_pJ': usys.get_energy() * 1e12,
+        })
 
-        # camb = CambriconU_Arch(M, N, K, clock=args.clock, precision=args.precision, energy=e)
+        # camb = CambriconU_Arch(M, N, K, freq=args.frequency, precision=args.precision, energy=e)
         # rows.append({'workload': name, 'arch': 'CambriconU',
         #              'cycles': camb.get_cycles(),
         #              'energy_pJ': camb.get_energy() * 1e12})
 
     df = pd.DataFrame(rows)
+    workload_order = [w[0] for w in workloads]
 
     print("\nEnergy (pJ):")
-    print(df.pivot(index='workload', columns='arch', values='energy_pJ'))
+    print(df.pivot(index='workload', columns='arch', values='energy_pJ').reindex(workload_order))
     print("\nCycles:")
-    print(df.pivot(index='workload', columns='arch', values='cycles'))
+    print(df.pivot(index='workload', columns='arch', values='cycles').reindex(workload_order))
 
     os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
     df.to_csv(OUTPUT_CSV, index=False)

@@ -1,3 +1,9 @@
 [submodule "analytical_modeling/scale-sim-v2"]
 	path = analytical_modeling/scale-sim-v2
 	url = https://github.com/scalesim-project/scale-sim-v2.git
+[submodule "analytical_modeling/uSystolic-Sim"]
+	path = analytical_modeling/uSystolic-Sim
+	url = https://github.com/diwu1990/uSystolic-Sim.git
+[submodule "analytical_modeling/cacti7"]
+	path = analytical_modeling/cacti7
+	url = https://github.com/HewlettPackard/cacti
