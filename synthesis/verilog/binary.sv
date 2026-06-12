@@ -1,13 +1,23 @@
-// MAC: multiply-accumulate for binary INT8 neural network inference
-/*
-module mac_binary_int8 (
-    input                    clk, rst,
-    input  signed [7:0]      a, b,
-    output reg signed [15:0] acc
+
+module mult #(parameter W = 4) (
+    input [W-1:0] a,
+    input [W-1:0] b,
+    output [2*W-1:0] prod
 );
-    always_ff @(posedge clk) begin
-        if (rst) acc <= 0;
-        else     acc <= acc + (a * b);
-    end
+
+assign prod = a * b;
+
 endmodule
-*/
+
+
+
+module bin_acc #(parameter W = 4) (
+    input [W-1:0] a,
+    input [W-1:0] b,
+    output [2*W-1:0] acc
+
+);
+
+assign acc = a + b;
+
+endmodule

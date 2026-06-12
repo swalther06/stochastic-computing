@@ -111,6 +111,23 @@ class BinarySystolic_Arch:
             e += self.get_mem_energy()
         return e
 
+    def get_pe_energy_pct(self):
+        total = self.get_energy()
+        return 100.0 * self.get_PE_energy() / total if total > 0 else 0.0
+
+    def get_energy_breakdown(self):
+        """Return {'inputs', 'weights', 'output', 'memory'} energy in Joules.
+
+        Binary uses a monolithic PE model (no sub-component breakdown), so all
+        PE energy is attributed to 'output' (compute/MAC).
+        """
+        return {
+            'inputs':  0.0,
+            'weights': 0.0,
+            'output':  self.get_PE_energy(),
+            'memory':  self.get_mem_energy() if self.include_memory else 0.0,
+        }
+
     # ---- Summary ------------------------------------------------------------
 
     def summary(self):

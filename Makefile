@@ -78,7 +78,13 @@ help:
 	@echo "      --precision <int>     Bit precision    (default: 8)"
 	@echo "      --frequency <float>   Clock frequency in Hz (default: 1e9 = 1 GHz)"
 	@echo "      --synthesize          Run DC synthesis to populate compute-component energies"
+	@echo "      --no-ugemm            Skip uGEMM targets (pc/acc/min) during synthesis;"
+	@echo "                            safe when uGEMM is not needed — synthesis runs once"
+	@echo "                            for fixed precision/array params across all workloads"
 	@echo "      --cacti               Run CACTI to populate SRAM read/write/leakage energies"
+	@echo "      --memory t|f          Include SRAM memory energy (default: f)"
+	@echo "      --graph  t|f          Save 100%% stacked energy-breakdown bar charts (default: f)"
+	@echo "    Shorthand Makefile knobs: make compare MEMORY=t  /  make compare GRAPH=t"
 	@echo ""
 	@echo "CACTI (SRAM energy):"
 	@echo "  make cacti      Init submodule and build CACTI 7 ($(CACTI_DIR))"
@@ -109,11 +115,13 @@ help:
 sync:
 	uv sync
 
-ARGS ?=
+ARGS   ?=
+MEMORY ?= f
+GRAPH  ?= f
 
 # Run the main comparison driver
 compare:
-	cd $(AM_DIR) && $(PY) compare.py $(ARGS)
+	cd $(AM_DIR) && $(PY) compare.py --memory $(MEMORY) --graph $(GRAPH) $(ARGS)
 
 # Run the SCALE-Sim validation
 validate:

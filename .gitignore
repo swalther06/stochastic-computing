@@ -12,6 +12,7 @@ wheels/
 .python-version
 outputs/
 analytical_modeling/scale-sim-v2/scalesim_outputs/
+analytical_modeling/graphs
 
 # Optional: ignore the SCALE-Sim clone itself (see note below)
 # analytical_modeling/scale-sim-v2/

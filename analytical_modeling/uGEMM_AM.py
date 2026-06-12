@@ -1,4 +1,3 @@
-from math import ceil
 from dataflow import sram_access_counts, to_physical_accesses
 from energy import Energy
 
@@ -9,7 +8,7 @@ class uGEMM_Arch:
 
     # ---- Constructor --------------------------------------------------------
 
-    def __init__(self, M, N, K, array_h, array_w,
+    def __init__(self, M, N, K,
                  acc_type, mul_type, freq, precision,
                  energy: Energy,
                  ifmap_sram_kB=1024, filter_sram_kB=1024, ofmap_sram_kB=1024,
@@ -17,8 +16,6 @@ class uGEMM_Arch:
         self.M = M
         self.N = N
         self.K = K
-        self.H = array_h
-        self.W = array_w
 
         self.acc_type       = acc_type
         self.mul_type       = mul_type
@@ -30,10 +27,6 @@ class uGEMM_Arch:
         self.a = precision
         self.l = 2 ** precision
         self.energy = energy
-
-        self.m_tiles   = ceil(M / array_h)
-        self.n_tiles   = ceil(N / array_w)
-        self.num_tiles = self.m_tiles * self.n_tiles
 
         self.pol_factor  = 2 if "bipolar" in mul_type else 1
         self.mode_factor = 2 if "IS" in mul_type else 1
@@ -48,23 +41,22 @@ class uGEMM_Arch:
     def _weight_dyn_per_cycle(self):
         e = self.energy
         factor = self.pol_factor * self.mode_factor
-        return (self.K * self.W * e.CMP_DYN * factor
-                + self.K * self.W * e.RNG_DYN * factor)
+        return (self.N * self.K * e.CMP_DYN * factor
+                + self.N * self.K * e.RNG_DYN * factor)
 
     def _input_dyn_per_cycle(self):
         e = self.energy
-        return (self.H * self.K * e.CMP_DYN
-                + self.H * self.K * e.RNG_DYN)
+        return (self.M * self.K * e.CMP_DYN
+                + self.M * self.K * e.RNG_DYN)
 
     def _compute_dyn_per_cycle(self):
         e = self.energy
-        if "unipolar" in self.mul_type:
-            return self.H * self.W * e.AND_DYN
-        return self.H * self.W * e.XNOR_DYN
+        gate = e.AND_DYN if "unipolar" in self.mul_type else e.XNOR_DYN
+        return self.M * self.N * self.K * gate
 
     def _output_dyn_per_cycle(self):
         e = self.energy
-        num_pes = self.H * self.W
+        num_pes = self.M * self.N
         if self.acc_type == "uSADD":
             return num_pes * (e.PC_DYN + e.ACC_DYN)
         elif self.acc_type == "uNSADD":
@@ -86,21 +78,20 @@ class uGEMM_Arch:
     def _weight_leak_power(self):
         e = self.energy
         factor = self.pol_factor * self.mode_factor
-        return self.K * self.W * (e.RNG_LEAK + e.CMP_LEAK) * factor
+        return self.N * self.K * (e.RNG_LEAK + e.CMP_LEAK) * factor
 
     def _input_leak_power(self):
         e = self.energy
-        return self.H * self.K * (e.RNG_LEAK + e.CMP_LEAK)
+        return self.M * self.K * (e.RNG_LEAK + e.CMP_LEAK)
 
     def _compute_leak_power(self):
         e = self.energy
-        if "unipolar" in self.mul_type:
-            return self.H * self.W * e.AND_LEAK
-        return self.H * self.W * e.XNOR_LEAK
+        gate = e.AND_LEAK if "unipolar" in self.mul_type else e.XNOR_LEAK
+        return self.M * self.N * self.K * gate
 
     def _output_leak_power(self):
         e = self.energy
-        num_pes = self.H * self.W
+        num_pes = self.M * self.N
         if self.acc_type == "uSADD":
             return num_pes * (e.PC_LEAK + e.ACC_LEAK)
         elif self.acc_type == "uNSADD":
@@ -117,26 +108,15 @@ class uGEMM_Arch:
                 + self._compute_leak_power()
                 + self._output_leak_power())
 
-    # ---- per-tile energy ----------------------------------------------------
-
-    def get_PE_dyn_energy_per_tile(self):
-        """PE dynamic energy for ONE tile (J) = per-cycle dyn * L cycles."""
-        return self._dyn_per_cycle() * self.get_cycles_per_tile()
-
-    def get_PE_leak_energy_per_tile(self):
-        """PE leakage energy for ONE tile (J) = leak power * time per tile."""
-        time_per_tile = self.get_cycles_per_tile() * self.clock
-        return self._leak_power() * time_per_tile
-
-    # ---- PE energy: dynamic and leakage SEPARATE, each * num_tiles ----------
+    # ---- PE energy: dynamic and leakage SEPARATE ----------------------------
 
     def get_PE_dyn_energy(self):
-        """Total PE dynamic energy (J) = num_tiles * per-tile dynamic."""
-        return self.num_tiles * self.get_PE_dyn_energy_per_tile()
+        """Total PE dynamic energy (J) = per-cycle dynamic * L cycles."""
+        return self._dyn_per_cycle() * self.get_cycles()
 
     def get_PE_leak_energy(self):
-        """Total PE leakage energy (J) = num_tiles * per-tile leakage."""
-        return self.num_tiles * self.get_PE_leak_energy_per_tile()
+        """Total PE leakage energy (J) = leak power * runtime."""
+        return self._leak_power() * self.get_runtime()
 
     def get_PE_energy(self):
         """Total PE energy (J) = dynamic + leakage."""
@@ -145,7 +125,8 @@ class uGEMM_Arch:
     # ---- Memory -------------------------------------------------------------
 
     def _sram_elem_counts(self):
-        return sram_access_counts('ugemm', self.M, self.N, self.K, self.H, self.W)
+        # Fully-parallel array: pass the array dims (M, N) for the H/W slots.
+        return sram_access_counts('ugemm', self.M, self.N, self.K, self.M, self.N)
 
     def filter_sram_reads(self):
         return self._sram_elem_counts()['filter_reads']
@@ -187,11 +168,8 @@ class uGEMM_Arch:
 
     # ---- Cycles / time ------------------------------------------------------
 
-    def get_cycles_per_tile(self):
-        return self.l
-
     def get_cycles(self):
-        return self.num_tiles * self.get_cycles_per_tile()
+        return self.l
 
     def get_runtime(self):
         """Wall-clock runtime (s) = total cycles * clock period."""
@@ -201,7 +179,6 @@ class uGEMM_Arch:
         return self.M * self.N * self.K
 
     def get_cycles_per_mac(self):
-        """cycles/MAC = total cycles / MAC count (~L for unary, 1 for binary)."""
         macs = self.get_num_macs()
         return self.get_cycles() / macs if macs > 0 else 0.0
 
@@ -214,8 +191,32 @@ class uGEMM_Arch:
             e += self.get_mem_energy()
         return e
 
+    def get_pe_energy_pct(self):
+        total = self.get_energy()
+        return 100.0 * self.get_PE_energy() / total if total > 0 else 0.0
+
+    def get_energy_breakdown(self):
+        """Return {'inputs', 'weights', 'output', 'memory'} energy in Joules.
+
+        uGEMM has per-component leakage formulas, so leakage is attributed exactly.
+        'output' includes both the compute gate (AND/XNOR) and the accumulator.
+        """
+        cycles  = self.get_cycles()
+        runtime = self.get_runtime()
+
+        weights = (self._weight_dyn_per_cycle()  * cycles + self._weight_leak_power()  * runtime)
+        inputs  = (self._input_dyn_per_cycle()   * cycles + self._input_leak_power()   * runtime)
+        output  = ((self._compute_dyn_per_cycle() + self._output_dyn_per_cycle()) * cycles
+                   + (self._compute_leak_power()  + self._output_leak_power())    * runtime)
+
+        return {
+            'inputs':  inputs,
+            'weights': weights,
+            'output':  output,
+            'memory':  self.get_mem_energy() if self.include_memory else 0.0,
+        }
+
     def get_energy_per_mac(self):
-        """Energy per MAC (J) = total energy / #MAC."""
         macs = self.get_num_macs()
         return self.get_energy() / macs if macs > 0 else 0.0
 
@@ -223,7 +224,7 @@ class uGEMM_Arch:
 
     def summary(self):
         return {
-            'num_tiles':       self.num_tiles,
+            'num_pes':         self.M * self.N,
             'cycles':          self.get_cycles(),
             'runtime_s':       self.get_runtime(),
             'cycles_per_mac':  self.get_cycles_per_mac(),

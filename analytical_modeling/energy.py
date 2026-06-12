@@ -15,6 +15,16 @@ _CACTI_BIN = os.path.join(_CACTI_DIR, 'cacti')
 # CACTI cannot model an access (block) width narrower than 64 bytes.
 _CACTI_MIN_BLOCK_BYTES = 64
 
+# Attributes whose value scales with K (uGEMM-specific); everything else is
+# determined solely by precision + array dimensions + SRAM sizes.
+_UGEMM_ATTRS = frozenset({
+    'PC_DYN',     'PC_LEAK',
+    'ACC_DYN',    'ACC_LEAK',
+    'MIN_DYN',    'MIN_LEAK',
+    'SKEW_PC_DYN','SKEW_PC_LEAK',
+    'RIM_INC_DYN','RIM_INC_LEAK',
+})
+
 
 class Energy:
     """Component energy model parameterized by workload (M, N, K) and the
@@ -145,6 +155,8 @@ class Energy:
         self.PE_BINARY_INT8_LEAK      = 47.91e-6
         self.PE_USYS_INT8_DYN        = 0.199e-12
         self.PE_USYS_INT8_LEAK       = 16.22e-6
+
+        self._recompute_derived()
         self._save_cache()
 
 
@@ -316,14 +328,20 @@ class Energy:
 
     # -- Synthesis ------------------------------------------------------------
 
-    def synthesize(self, syn_dir: str = None) -> None:
-        """Run DC synthesis for all RTL targets, update compute-component energies, and save cache."""
+    def synthesize(self, syn_dir: str = None, include_ugemm: bool = True,
+                   ugemm_only: bool = False) -> None:
+        """Run DC synthesis for all RTL targets, update compute-component energies, and save cache.
+
+        include_ugemm=False  -- skip uGEMM targets (pc/acc/min); reuse across workloads.
+        ugemm_only=True      -- synthesize only uGEMM targets (K-dependent); caller is
+                                responsible for copying general attrs from a prior synthesis.
+        """
         if syn_dir is None:
             syn_dir = os.path.join(_REPO_ROOT, 'synthesis')
         rtl_dir     = os.path.join(syn_dir, 'verilog')
         reports_dir = os.path.join(syn_dir, 'reports')
 
-        targets = self._synthesis_targets()
+        targets = self._synthesis_targets(include_ugemm=include_ugemm, ugemm_only=ugemm_only)
         os.makedirs(reports_dir, exist_ok=True)
 
         for top, src_file, src_mod, params, port_decl, port_conn, dyn_attr, leak_attr in targets:
@@ -362,49 +380,42 @@ class Energy:
                 if os.path.exists(sv_path):
                     os.remove(sv_path)
 
+        self._recompute_derived()
         self._save_cache(syn_dir)
 
-    def _synthesis_targets(self):
+    def _synthesis_targets(self, include_ugemm: bool = True, ugemm_only: bool = False):
         """Return list of (top, src_file, src_mod, params, port_decl, port_conn, dyn_attr, leak_attr) tuples."""
         b    = self.precision
         K    = self.K
         N    = max(2, self.N)
         pcw  = ceil(log2(K + 1))
         pcw1 = ceil(log2(K + 2))
-        return [
+        ugemm_targets = [
             (f'pc_K{K+1}', 'ugemm.sv', 'pc', {'K': K+1},
              f'input [{K}:0] bits, output [{pcw1-1}:0] count',
              '.bits(bits), .count(count)', 'PC_DYN', 'PC_LEAK'),
             (f'acc_W{pcw}', 'ugemm.sv', 'acc', {'W': pcw},
              f'input clk, rst, input [{pcw-1}:0] in, output [{pcw-1}:0] sum',
              '.clk(clk), .rst(rst), .in(in), .sum(sum)', 'ACC_DYN', 'ACC_LEAK'),
-            (f'ctr_W{b}', 'basic_comp.sv', 'ctr', {'W': b},
-             f'input clk, rst, output [{b-1}:0] count',
-             '.clk(clk), .rst(rst), .count(count)', 'CTR_DYN', 'CTR_LEAK'),
             (f'min_W{pcw}', 'ugemm.sv', 'min_unit', {'W': pcw},
              f'input [{pcw-1}:0] a, b, output [{pcw-1}:0] y',
              '.a(a), .b(b), .y(y)', 'MIN_DYN', 'MIN_LEAK'),
-            (f'shift_D{N}_W{b}', 'systolic.sv', 'shift_reg', {'DEPTH': N, 'W': b},
-             f'input clk, rst, input [{b-1}:0] d, output [{b-1}:0] q',
-             '.clk(clk), .rst(rst), .d(d), .q(q)', 'SHIFT_DYN', 'SHIFT_LEAK'),
-            (f'fifo_D{N}_W{b}', 'systolic.sv', 'sc_fifo', {'DEPTH': N, 'W': b},
-             f'input clk, rst, wr_en, rd_en, input [{b-1}:0] din, output [{b-1}:0] dout, output full, empty',
-             '.clk(clk), .rst(rst), .wr_en(wr_en), .rd_en(rd_en), .din(din)'
-             ', .dout(dout), .full(full), .empty(empty)', 'FIFO_DYN', 'FIFO_LEAK'),
-            (f'rim_inc_W{b}', 'ugemm.sv', 'rim_inc', {'W': b},
-             f'input clk, rst, inc, output [{b-1}:0] val',
-             '.clk(clk), .rst(rst), .inc(inc), .val(val)', 'RIM_INC_DYN', 'RIM_INC_LEAK'),
-            (f'rim_rd_W{b}', 'ugemm.sv', 'rim_rd', {'W': b},
-             f'input [{b-1}:0] val, input rd_en, output [{b-1}:0] out',
-             '.val(val), .rd_en(rd_en), .out(out)', 'RIM_RD_DYN', 'RIM_RD_LEAK'),
+        ]
+        general_targets = [
+            (f'ctr_W{b}', 'basic_comp.sv', 'ctr', {'W': b},
+             f'input clk, rst, output [{b-1}:0] count',
+             '.clk(clk), .rst(rst), .count(count)', 'CTR_DYN', 'CTR_LEAK'),
+            #(f'shift_D{N}_W{b}', 'systolic.sv', 'shift_reg', {'DEPTH': N, 'W': b},
+            # f'input clk, rst, input [{b-1}:0] d, output [{b-1}:0] q',
+            # '.clk(clk), .rst(rst), .d(d), .q(q)', 'SHIFT_DYN', 'SHIFT_LEAK'),
+            #(f'fifo_D{N}_W{b}', 'systolic.sv', 'sc_fifo', {'DEPTH': N, 'W': b},
+            # f'input clk, rst, wr_en, rd_en, input [{b-1}:0] din, output [{b-1}:0] dout, output full, empty',
+            # '.clk(clk), .rst(rst), .wr_en(wr_en), .rd_en(rd_en), .din(din)'
+            # ', .dout(dout), .full(full), .empty(empty)', 'FIFO_DYN', 'FIFO_LEAK'),
             (f'bin_conv_A{b}', 'cambricon.sv', 'bin_conv', {'A': b},
              f'input clk, rst, skew_in, output [{b-1}:0] bin_out',
              '.clk(clk), .rst(rst), .skew_in(skew_in), .bin_out(bin_out)',
              'BIN_CONV_DYN', 'BIN_CONV_LEAK'),
-            (f'skew_pc_K{K}', 'ugemm.sv', 'skew_pc', {'K': K},
-             f'input clk, rst, input [{K-1}:0] bits, output [{pcw-1}:0] count',
-             '.clk(clk), .rst(rst), .bits(bits), .count(count)',
-             'SKEW_PC_DYN', 'SKEW_PC_LEAK'),
             ('nand_gate', 'logic_gates.sv', None, {}, None, None, 'NAND_DYN',  'NAND_LEAK'),
             ('nor_gate',  'logic_gates.sv', None, {}, None, None, 'NOR_DYN',   'NOR_LEAK'),
             ('xnor_gate', 'logic_gates.sv', None, {}, None, None, 'XNOR_DYN',  'XNOR_LEAK'),
@@ -435,6 +446,9 @@ class Energy:
             ('sel_unit',        'systolic.sv',  None, {}, None, None, 'SEL_DYN',             'SEL_LEAK'),
             #('mac_binary_int8', 'binary.sv',    None, {}, None, None, 'MAC_BINARY_INT8_DYN', 'MAC_BINARY_INT8_LEAK'),
         ]
+        if ugemm_only:
+            return ugemm_targets
+        return (ugemm_targets if include_ugemm else []) + general_targets
 
     def _apply_report(self, top, rpt_path, time_path, dyn_attr, leak_attr):
         """Parse a power/timing report pair and write results to dyn_attr/leak_attr. Returns True on success."""
@@ -454,13 +468,13 @@ class Energy:
         print(f'[Energy] {top} OK ({status})')
         return True
 
-    def reload_from_reports(self, syn_dir: str = None) -> None:
+    def reload_from_reports(self, syn_dir: str = None, include_ugemm: bool = True) -> None:
         """Re-parse existing synthesis reports and refresh the cache without re-running DC."""
         if syn_dir is None:
             syn_dir = os.path.join(_REPO_ROOT, 'synthesis')
         reports_dir = os.path.join(syn_dir, 'reports')
         updated = 0
-        for top, *_, dyn_attr, leak_attr in self._synthesis_targets():
+        for top, *_, dyn_attr, leak_attr in self._synthesis_targets(include_ugemm=include_ugemm):
             rpt_path  = os.path.join(reports_dir, f'{top}_power.rpt')
             time_path = os.path.join(reports_dir, f'{top}_timing.rpt')
             if self._apply_report(top, rpt_path, time_path, dyn_attr, leak_attr):
@@ -468,12 +482,27 @@ class Energy:
             else:
                 print(f'[Energy.reload_from_reports] SKIP: {top} -- no report')
         print(f'[Energy.reload_from_reports] updated {updated} targets')
+        self._recompute_derived()
         self._save_cache(syn_dir)
+
+    def _recompute_derived(self) -> None:
+        """Recompute energy values derived from synthesized primitives."""
+        self.RIM_INC_DYN  = self.INC_DYN  / 2.0
+        self.RIM_INC_LEAK = self.INC_LEAK / 2.0
+        self.RIM_ADD_DYN  = self.ADD_DYN
+        self.RIM_ADD_LEAK = self.ADD_LEAK
 
     # -- Cache ----------------------------------------------------------------
 
+    def _base_cache_key(self) -> str:
+        """Key for non-uGEMM values (precision + array dims + SRAM sizes only)."""
+        return (f'{self.precision}b_A{self.array_h}x{self.array_w}'
+                f'_I{int(self.ifmap_sram_kB)}'
+                f'_F{int(self.filter_sram_kB)}'
+                f'_O{int(self.ofmap_sram_kB)}')
+
     def _cache_key(self) -> str:
-        """Unique string key encoding this instance's parameter configuration."""
+        """Full key encoding all parameters, including K/N for uGEMM-specific values."""
         return (f'{self.precision}b_K{self.K}_N{self.N}_A{self.array_h}x{self.array_w}'
                 f'_I{int(self.ifmap_sram_kB)}'
                 f'_F{int(self.filter_sram_kB)}'
@@ -486,7 +515,11 @@ class Energy:
         return os.path.join(syn_dir, 'energy_cache.json')
 
     def _load_cache(self, syn_dir: str = None) -> None:
-        """Load cached energy values for this key into instance attrs, if the cache file exists."""
+        """Load cached energy values into instance attrs.
+
+        Base (non-uGEMM) values are loaded first from the base key; uGEMM-specific
+        values are then overlaid from the full key if it exists.
+        """
         path = self._cache_path(syn_dir)
         if not os.path.exists(path):
             return
@@ -495,12 +528,21 @@ class Energy:
                 cache = json.load(fh)
         except (json.JSONDecodeError, OSError):
             return
+        for attr, val in cache.get(self._base_cache_key(), {}).items():
+            if hasattr(self, attr):
+                setattr(self, attr, val)
         for attr, val in cache.get(self._cache_key(), {}).items():
             if hasattr(self, attr):
                 setattr(self, attr, val)
 
     def _save_cache(self, syn_dir: str = None) -> None:
-        """Write all *_DYN/*_LEAK attrs for this key into energy_cache.json."""
+        """Write energy attrs into energy_cache.json.
+
+        Non-uGEMM attrs are stored under the base key (precision + dims + SRAM);
+        all attrs are also stored under the full key (includes K/N).  This lets a
+        new MNK configuration seed its non-uGEMM values from the base key without
+        re-running synthesis.
+        """
         path = self._cache_path(syn_dir)
         cache: dict = {}
         if os.path.exists(path):
@@ -509,10 +551,15 @@ class Energy:
                     cache = json.load(fh)
             except (json.JSONDecodeError, OSError):
                 cache = {}
-        cache[self._cache_key()] = {
+        all_energy = {
             attr: val for attr, val in vars(self).items()
             if attr.endswith('_DYN') or attr.endswith('_LEAK') or attr.endswith('_LEAK_W')
         }
+        cache[self._base_cache_key()] = {
+            attr: val for attr, val in all_energy.items()
+            if attr not in _UGEMM_ATTRS
+        }
+        cache[self._cache_key()] = all_energy
         with open(path, 'w') as fh:
             json.dump(cache, fh, indent=2)
 
